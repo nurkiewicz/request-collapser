@@ -1,3 +1,29 @@
+# Use cases
+* collapse multiple, independent requests, into a single batch one
+* batch GET requests, database inserts, message publishing
+
+# Features
+* Supports array and map input
+* Advanced testing capabilities
+* Optional deduplication
+* Run immediately if necessary
+* Built-in metrics (collapsed request size, queueing time)
+
+# When not to use
+* Caching works good
+* You need fast response time and can't tolerate lag
+* When your operations need to run sequentially (`await` after `await`)
+
+# Modes of operation
+* Time-based
+* Size-based
+* Time-based with size cap (default)
+
+# Configuration options
+* Window length [ms]
+* Window size [items]
+
+
 # typescript-npm-package-template
 
 > Template to kickstart creating a Node.js module using TypeScript and VSCode
