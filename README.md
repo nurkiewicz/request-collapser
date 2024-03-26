@@ -31,12 +31,6 @@
 * `enableDeduplication` - same requests are run only once. May include additional comparison method
 * `getQueueLength()`
 
-# typescript-npm-package-template
-
-> Template to kickstart creating a Node.js module using TypeScript and VSCode
-
-Inspired by [node-module-boilerplate](https://github.com/sindresorhus/node-module-boilerplate)
-
 ## Features
 
 - [Semantic Release](https://github.com/semantic-release/semantic-release)
