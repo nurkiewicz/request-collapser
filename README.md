@@ -2,6 +2,7 @@
 * collapse multiple, independent requests, into a single batch one
 * batch GET requests, database inserts, message publishing
 * fire-and-forget operations that are not time-sensitive
+* batching user-activity on frontend to send single HTTP POST instead of multiple small ones (aka. throttling, debouncing)
 
 # Features
 * Supports array and map input
