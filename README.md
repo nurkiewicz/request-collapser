@@ -1,13 +1,15 @@
 # Use cases
 * collapse multiple, independent requests, into a single batch one
 * batch GET requests, database inserts, message publishing
+* fire-and-forget operations that are not time-sensitive
 
 # Features
 * Supports array and map input
-* Advanced testing capabilities
+* Advanced testing capabilities with fake timers
 * Optional deduplication
 * Run immediately if necessary
 * Built-in metrics (collapsed request size, queueing time)
+* Custom queue implementation
 
 # When not to use
 * Caching works good
@@ -20,9 +22,14 @@
 * Time-based with size cap (default)
 
 # Configuration options
-* Window length [ms]
-* Window size [items]
+* Window length, default 100ms
+* Window size, default 32
 
+# API
+* `flush()` - to force batch operation run
+* `skipQueue` - to run operation immediately, without queuing
+* `enableDeduplication` - same requests are run only once. May include additional comparison method
+* `getQueueLength()`
 
 # typescript-npm-package-template
 
