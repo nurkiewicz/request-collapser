@@ -3,6 +3,8 @@
 * batch GET requests, database inserts, message publishing
 * fire-and-forget operations that are not time-sensitive
 * batching user-activity on frontend to send single HTTP POST instead of multiple small ones (aka. throttling, debouncing)
+* incrementing a counter in batches, rather than multiple `+1`
+* fetching batch of database sequence values
 
 # Features
 * Supports array and map input
@@ -16,6 +18,8 @@
 * Caching works good
 * You need fast response time and can't tolerate lag
 * When your operations need to run sequentially (`await` after `await`)
+* When your operation is part of transaction
+* When operation must be part of larger trace/span
 
 # Modes of operation
 * Time-based
