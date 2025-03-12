@@ -37,7 +37,7 @@ type QueueItem<Args, R> = {
  * @returns Function that processes single items by batching them
  */
 export function createCollapser<Args extends any[], R>(
-  batchFn: (...args: UnzipArrays<Args[]>) => Promise<R[]>,
+  batchFn: (items: Args[]) => Promise<R[]>,
   options: CollapserOptions = {}
 ): (...args: Args) => Promise<R> {
   const {
@@ -55,13 +55,9 @@ export function createCollapser<Args extends any[], R>(
     timeoutId = undefined;
 
     try {
-      // Transpose the arguments array to group by parameter position
-      const argsArrays = currentQueue.map(q => q.args);
-      const transposedArgs = argsArrays[0].map((_, i) => 
-        argsArrays.map(args => args[i])
-      ) as UnzipArrays<Args[]>;
-      
-      const results = await batchFn(...transposedArgs);
+      // Pass array of argument tuples directly to batch function
+      const argsArray = currentQueue.map(q => q.args);
+      const results = await batchFn(argsArray);
       
       if (results.length !== currentQueue.length) {
         throw new Error('Batch function must return same number of results as input items');

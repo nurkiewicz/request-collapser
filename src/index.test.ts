@@ -11,8 +11,8 @@ describe('createCollapser', () => {
   });
 
   it('should batch multiple requests into a single operation', async () => {
-    const batchFn = vi.fn().mockImplementation(async (numbers: number[]) => 
-      numbers.map(n => n * 2)
+    const batchFn = vi.fn().mockImplementation(async (items: [number][]) => 
+      items.map(([n]) => n * 2)
     );
 
     const singleOp = createCollapser<[number], number>(batchFn, { windowMs: 100 });
@@ -32,13 +32,13 @@ describe('createCollapser', () => {
     
     // Verify batch function was called once with all numbers
     expect(batchFn).toHaveBeenCalledTimes(1);
-    expect(batchFn).toHaveBeenCalledWith([1, 2, 3]);
+    expect(batchFn).toHaveBeenCalledWith([[1], [2], [3]]);
   });
 
   it('should batch multiple arguments', async () => {
     const batchFn = vi.fn().mockImplementation(
-      async (keys: string[], values: number[]) => 
-        keys.map((_, i) => `${keys[i]}:${values[i]}`)
+      async (items: [string, number][]) => 
+        items.map(([key, value]) => `${key}:${value}`)
     );
 
     const multiOp = createCollapser<[string, number], string>(batchFn, { windowMs: 100 });
@@ -58,12 +58,16 @@ describe('createCollapser', () => {
 
     // Verify batch function was called once with all arguments properly grouped
     expect(batchFn).toHaveBeenCalledTimes(1);
-    expect(batchFn).toHaveBeenCalledWith(['a', 'b', 'c'], [1, 2, 3]);
+    expect(batchFn).toHaveBeenCalledWith([
+      ['a', 1],
+      ['b', 2],
+      ['c', 3]
+    ]);
   });
 
   it('should trigger batch when size limit is reached', async () => {
-    const batchFn = vi.fn().mockImplementation(async (numbers: number[]) => 
-      numbers.map(n => n * 2)
+    const batchFn = vi.fn().mockImplementation(async (items: [number][]) => 
+      items.map(([n]) => n * 2)
     );
 
     const singleOp = createCollapser<[number], number>(batchFn, { 
@@ -77,7 +81,7 @@ describe('createCollapser', () => {
     
     // Should trigger immediately due to maxSize
     expect(batchFn).toHaveBeenCalledTimes(1);
-    expect(batchFn).toHaveBeenCalledWith([1, 2]);
+    expect(batchFn).toHaveBeenCalledWith([[1], [2]]);
 
     // Second batch
     const promise3 = singleOp(3);
@@ -116,6 +120,37 @@ describe('createCollapser', () => {
 
     // Verify batch function was called once
     expect(batchFn).toHaveBeenCalledTimes(1);
-    expect(batchFn).toHaveBeenCalledWith([1, 2]);
+    expect(batchFn).toHaveBeenCalledWith([[1], [2]]);
+  });
+
+  it('should handle string and number arguments', async () => {
+    // Mock function that formats messages with IDs
+    const batchFn = vi.fn().mockImplementation(
+      async (items: [string, number][]) => 
+        items.map(([msg, id]) => `${msg}#${id}`)
+    );
+
+    const formatMessage = createCollapser<[string, number], string>(batchFn, { windowMs: 100 });
+    
+    // Create multiple promises that will be batched
+    const promise1 = formatMessage('Message', 1);
+    const promise2 = formatMessage('Task', 2);
+    const promise3 = formatMessage('Note', 3);
+
+    // Advance timers to trigger batch processing
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Verify results
+    expect(await promise1).toBe('Message#1');
+    expect(await promise2).toBe('Task#2');
+    expect(await promise3).toBe('Note#3');
+    
+    // Verify batch function was called once with all arguments properly grouped
+    expect(batchFn).toHaveBeenCalledTimes(1);
+    expect(batchFn).toHaveBeenCalledWith([
+      ['Message', 1],
+      ['Task', 2],
+      ['Note', 3]
+    ]);
   });
 }); 
