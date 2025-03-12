@@ -154,6 +154,71 @@ describe('createCollapser', () => {
     ]);
   });
 
+  it('should support Map return type', async () => {
+    const batchFn = vi.fn().mockImplementation(async (items: [number][]) => {
+      const resultMap = new Map<string, number>();
+      items.forEach(item => {
+        resultMap.set(JSON.stringify(item), item[0] * 2);
+      });
+      return resultMap;
+    });
+
+    const singleOp = createCollapser<[number], number>(batchFn, { windowMs: 100 });
+    
+    // Create multiple promises that will be batched
+    const promise1 = singleOp(1);
+    const promise2 = singleOp(2);
+    const promise3 = singleOp(3);
+
+    // Advance timers to trigger batch processing
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Verify results
+    expect(await promise1).toBe(2);
+    expect(await promise2).toBe(4);
+    expect(await promise3).toBe(6);
+    
+    // Verify batch function was called once with all numbers
+    expect(batchFn).toHaveBeenCalledTimes(1);
+    expect(batchFn).toHaveBeenCalledWith([[1], [2], [3]]);
+  });
+
+  it('should handle errors when Map is missing results', async () => {
+    const batchFn = vi.fn().mockImplementation(async (items: [number][]) => {
+      const resultMap = new Map<string, number>();
+      // Only process the first item
+      const firstItem = items[0];
+      resultMap.set(JSON.stringify(firstItem), firstItem[0] * 2);
+      return resultMap;
+    });
+
+    const singleOp = createCollapser<[number], number>(batchFn, { windowMs: 100 });
+    
+    // Create promises that will fail
+    const promise1 = singleOp(1);
+    const promise2 = singleOp(2);
+
+    // Advance timers to trigger batch processing
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Wait for all promises to settle
+    const results = await Promise.allSettled([promise1, promise2]);
+
+    // First promise should succeed, second should fail
+    expect(results[0].status).toBe('fulfilled');
+    if (results[0].status === 'fulfilled') {
+      expect(results[0].value).toBe(2);
+    }
+    expect(results[1].status).toBe('rejected');
+    if (results[1].status === 'rejected') {
+      expect(results[1].reason.message).toBe('Batch function must return a result for each input item');
+    }
+
+    // Verify batch function was called once
+    expect(batchFn).toHaveBeenCalledTimes(1);
+    expect(batchFn).toHaveBeenCalledWith([[1], [2]]);
+  });
+
   it('should immediately process batches when maxSize is reached', async () => {
     const batchFn = vi.fn().mockImplementation(
       async (items: [string, number][]) => 
