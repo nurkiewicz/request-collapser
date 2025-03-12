@@ -85,20 +85,19 @@ describe('createCollapser - Window-based Batching', () => {
       windowMs: 100,
     });
 
-    // Create promises and store them to prevent unhandled rejections
-    const promises = [collapser(1), collapser(2)];
+    // Create promises with immediate error handlers
+    const promise1 = collapser(1).catch(err => {
+      expect(err).toBe(error);
+      return undefined;
+    });
+    const promise2 = collapser(2).catch(err => {
+      expect(err).toBe(error);
+      return undefined;
+    });
 
     // Advance timers to trigger batch processing
     await vi.advanceTimersByTimeAsync(100);
-
-    // Handle all rejections
-    await Promise.all(
-      promises.map(promise =>
-        promise.catch(err => {
-          expect(err).toBe(error);
-        })
-      )
-    );
+    await Promise.all([promise1, promise2]);
 
     expect(batchFn).toHaveBeenCalledTimes(1);
     expect(batchFn).toHaveBeenCalledWith([[1], [2]]);
@@ -187,24 +186,21 @@ describe('createCollapser - Window-based Batching', () => {
       windowMs: 100,
     });
 
-    // Create promises and store them to prevent unhandled rejections
-    const promise1 = collapser(1);
-    const promise2 = collapser(2);
+    // Create promises with immediate handlers
+    const promise1 = collapser(1).then(result => {
+      expect(result).toBe('result1');
+      return result;
+    });
+    const promise2 = collapser(2).catch((error: Error) => {
+      expect(error.message).toBe(
+        'Batch function must return a result for each input item'
+      );
+      return undefined;
+    });
 
     // Advance timers to trigger batch processing
     await vi.advanceTimersByTimeAsync(100);
-
-    // Handle both success and rejection cases
-    await Promise.all([
-      promise1.then(result => {
-        expect(result).toBe('result1');
-      }),
-      promise2.catch((error: Error) => {
-        expect(error.message).toBe(
-          'Batch function must return a result for each input item'
-        );
-      }),
-    ]);
+    await Promise.all([promise1, promise2]);
 
     expect(batchFn).toHaveBeenCalledTimes(1);
     expect(batchFn).toHaveBeenCalledWith([[1], [2]]);

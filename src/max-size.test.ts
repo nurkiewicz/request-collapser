@@ -87,17 +87,17 @@ describe('createCollapser - Max Size Batching', () => {
       maxSize: 2,
     });
 
-    // Create promises and store them to prevent unhandled rejections
-    const promises = [collapser(1), collapser(2)];
+    // Create promises with immediate error handlers
+    const promise1 = collapser(1).catch(err => {
+      expect(err).toBe(error);
+      return undefined;
+    });
+    const promise2 = collapser(2).catch(err => {
+      expect(err).toBe(error);
+      return undefined;
+    });
 
-    // Handle all rejections
-    await Promise.all(
-      promises.map(promise =>
-        promise.catch(err => {
-          expect(err).toBe(error);
-        })
-      )
-    );
+    await Promise.all([promise1, promise2]);
 
     expect(batchFn).toHaveBeenCalledTimes(1);
     expect(batchFn).toHaveBeenCalledWith([[1], [2]]);

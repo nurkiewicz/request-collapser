@@ -18,10 +18,10 @@ export interface CollapserOptions {
  * Queue item representing a single operation in the batch
  * @private
  */
-export type QueueItem<R> = {
+export type QueueItem<Args extends any[], R> = {
+  args: Args;
   resolve: (value: R) => void;
   reject: (error: Error) => void;
-  key: string;
 };
 
 /**
@@ -38,11 +38,11 @@ export type BatchReturn<R> = R[] | Map<string, R>;
  */
 export function createCollapser<Args extends any[], R>(
   batchFn: (items: Args[]) => Promise<BatchReturn<R>>,
-  options: CollapserOptions = {}
+  options: Partial<CollapserOptions> = { windowMs: 100 }
 ): (...args: Args) => Promise<R> {
   const { windowMs = 100, maxSize = 32 } = options;
 
-  let queue: QueueItem<R>[] = [];
+  let queue: QueueItem<Args, R>[] = [];
   let timeoutId: NodeJS.Timeout | undefined;
 
   /**
@@ -60,13 +60,13 @@ export function createCollapser<Args extends any[], R>(
     timeoutId = undefined;
 
     try {
-      const argsArray = currentQueue.map(q => q.key);
+      const argsArray = currentQueue.map(q => q.args);
       const results = await batchFn(argsArray);
 
       if (results instanceof Map) {
         // Handle Map return type
         for (const q of currentQueue) {
-          const key = getKey(q.key);
+          const key = getKey(q.args);
           const result = results.get(key);
           if (result === undefined) {
             q.reject(
@@ -100,7 +100,10 @@ export function createCollapser<Args extends any[], R>(
         }
       }
     } catch (error) {
-      currentQueue.forEach(q => q.reject(error));
+      // Ensure error is always an Error object
+      const errorToUse =
+        error instanceof Error ? error : new Error(String(error));
+      currentQueue.forEach(q => q.reject(errorToUse));
     }
 
     // Process any remaining items in the queue
@@ -115,7 +118,7 @@ export function createCollapser<Args extends any[], R>(
 
   return (...args: Args): Promise<R> => {
     return new Promise((resolve, reject) => {
-      queue.push({ key: args, resolve, reject });
+      queue.push({ args, resolve, reject });
 
       if (queue.length >= maxSize) {
         if (timeoutId !== undefined) {
