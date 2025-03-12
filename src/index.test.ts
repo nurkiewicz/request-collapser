@@ -101,24 +101,18 @@ describe('createCollapser', () => {
       throw error;
     });
 
-    const singleOp = createCollapser<[number], number>(batchFn, { windowMs: 100 });
-    
-    // Create promises that will fail
-    const promises = [singleOp(1), singleOp(2)];
+    const collapser = createCollapser<[number], number>(batchFn, { windowMs: 100 });
+    const promise1 = collapser(1).catch(e => e);
+    const promise2 = collapser(2).catch(e => e);
 
-    // Advance timers to trigger batch processing
     await vi.advanceTimersByTimeAsync(100);
 
-    // Wait for all promises to settle and verify they were rejected with the error
-    const results = await Promise.allSettled(promises);
-    results.forEach(result => {
-      expect(result.status).toBe('rejected');
-      if (result.status === 'rejected') {
-        expect(result.reason).toBe(error);
-      }
-    });
+    const error1 = await promise1;
+    const error2 = await promise2;
 
-    // Verify batch function was called once
+    expect(error1).toBe(error);
+    expect(error2).toBe(error);
+
     expect(batchFn).toHaveBeenCalledTimes(1);
     expect(batchFn).toHaveBeenCalledWith([[1], [2]]);
   });
@@ -185,36 +179,25 @@ describe('createCollapser', () => {
 
   it('should handle errors when Map is missing results', async () => {
     const batchFn = vi.fn().mockImplementation(async (items: [number][]) => {
-      const resultMap = new Map<string, number>();
-      // Only process the first item
-      const firstItem = items[0];
-      resultMap.set(JSON.stringify(firstItem), firstItem[0] * 2);
-      return resultMap;
+      const map = new Map<string, string>();
+      // Only set result for the first item
+      map.set(JSON.stringify(items[0]), 'result1');
+      return map;
     });
 
-    const singleOp = createCollapser<[number], number>(batchFn, { windowMs: 100 });
-    
-    // Create promises that will fail
-    const promise1 = singleOp(1);
-    const promise2 = singleOp(2);
+    const collapser = createCollapser<[number], string>(batchFn, { windowMs: 100 });
+    const promise1 = collapser(1);
+    const promise2 = collapser(2).catch(e => e);
 
-    // Advance timers to trigger batch processing
     await vi.advanceTimersByTimeAsync(100);
 
-    // Wait for all promises to settle
-    const results = await Promise.allSettled([promise1, promise2]);
+    const result1 = await promise1;
+    const error2 = await promise2;
 
-    // First promise should succeed, second should fail
-    expect(results[0].status).toBe('fulfilled');
-    if (results[0].status === 'fulfilled') {
-      expect(results[0].value).toBe(2);
-    }
-    expect(results[1].status).toBe('rejected');
-    if (results[1].status === 'rejected') {
-      expect(results[1].reason.message).toBe('Batch function must return a result for each input item');
-    }
+    expect(result1).toBe('result1');
+    expect(error2).toBeInstanceOf(Error);
+    expect(error2.message).toBe('Batch function must return a result for each input item');
 
-    // Verify batch function was called once
     expect(batchFn).toHaveBeenCalledTimes(1);
     expect(batchFn).toHaveBeenCalledWith([[1], [2]]);
   });
