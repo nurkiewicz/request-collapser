@@ -21,6 +21,16 @@ type UnzipArrays<T extends any[][]> = {
 }[];
 
 /**
+ * Queue item representing a single operation in the batch
+ * @private
+ */
+type QueueItem<Args, R> = {
+  args: Args;
+  resolve: (value: R) => void;
+  reject: (error: any) => void;
+};
+
+/**
  * Creates a function that collapses individual operations into batches
  * @param batchFn Function that processes items in batches
  * @param options Configuration options
@@ -35,11 +45,7 @@ export function createCollapser<Args extends any[], R>(
     maxSize = 32
   } = options;
 
-  let queue: {
-    args: Args;
-    resolve: (value: R) => void;
-    reject: (error: any) => void;
-  }[] = [];
+  let queue: QueueItem<Args, R>[] = [];
   
   let timeoutId: number | undefined;
 
