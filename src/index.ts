@@ -6,7 +6,7 @@ export interface CollapserOptions {
    * @default 100
    */
   windowMs?: number;
-  
+
   /**
    * Maximum batch size before forced execution
    * @default 32
@@ -21,7 +21,7 @@ export interface CollapserOptions {
 type QueueItem<Args, R> = {
   args: Args;
   resolve: (value: R) => void;
-  reject: (error: any) => void;
+  reject: (error: unknown) => void;
 };
 
 /**
@@ -40,14 +40,10 @@ export function createCollapser<Args extends any[], R>(
   batchFn: (items: Args[]) => Promise<BatchReturn<Args, R>>,
   options: CollapserOptions = {}
 ): (...args: Args) => Promise<R> {
-  const {
-    windowMs = 100,
-    maxSize = 32
-  } = options;
+  const { windowMs = 100, maxSize = 32 } = options;
 
   let queue: QueueItem<Args, R>[] = [];
-  
-  let timeoutId: number | undefined;
+  let timeoutId: NodeJS.Timeout | undefined;
 
   /**
    * Generate a stable key for the Map from the arguments tuple
@@ -57,6 +53,8 @@ export function createCollapser<Args extends any[], R>(
   };
 
   const processQueue = async () => {
+    if (queue.length === 0) return;
+
     const currentQueue = queue;
     queue = [];
     timeoutId = undefined;
@@ -64,28 +62,46 @@ export function createCollapser<Args extends any[], R>(
     try {
       const argsArray = currentQueue.map(q => q.args);
       const results = await batchFn(argsArray);
-      
+
       if (results instanceof Map) {
         // Handle Map return type
-        currentQueue.forEach((q) => {
+        for (const q of currentQueue) {
           const key = getKey(q.args);
           const result = results.get(key);
           if (result === undefined) {
-            throw new Error('Batch function must return a result for each input item');
+            q.reject(new Error('Batch function must return a result for each input item'));
+          } else {
+            q.resolve(result);
           }
-          q.resolve(result);
-        });
+        }
       } else {
         // Handle Array return type
         if (results.length !== currentQueue.length) {
-          throw new Error('Batch function must return same number of results as input items');
+          currentQueue.forEach(q => {
+            q.reject(new Error('Batch function must return same number of results as input items'));
+          });
+        } else {
+          currentQueue.forEach((q, index) => {
+            const result = results[index];
+            if (result === undefined) {
+              q.reject(new Error('Batch function returned undefined result'));
+            } else {
+              q.resolve(result);
+            }
+          });
         }
-        currentQueue.forEach((q, index) => {
-          q.resolve(results[index]);
-        });
       }
     } catch (error) {
       currentQueue.forEach(q => q.reject(error));
+    }
+
+    // Process any remaining items in the queue
+    if (queue.length > 0) {
+      if (queue.length >= maxSize) {
+        void processQueue();
+      } else {
+        timeoutId = setTimeout(() => void processQueue(), windowMs);
+      }
     }
   };
 
@@ -98,9 +114,9 @@ export function createCollapser<Args extends any[], R>(
           clearTimeout(timeoutId);
           timeoutId = undefined;
         }
-        processQueue();
+        void processQueue();
       } else if (timeoutId === undefined) {
-        timeoutId = setTimeout(processQueue, windowMs) as unknown as number;
+        timeoutId = setTimeout(() => void processQueue(), windowMs);
       }
     });
   };
