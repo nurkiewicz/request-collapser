@@ -52,6 +52,54 @@ export function createCollapser<Args extends any[], R>(
     return JSON.stringify(args);
   };
 
+  /**
+   * Process results returned as an array
+   */
+  const processArrayResults = (
+    results: R[],
+    currentQueue: QueueItem<Args, R>[]
+  ) => {
+    if (results.length !== currentQueue.length) {
+      currentQueue.forEach(q => {
+        q.reject(
+          new Error(
+            'Batch function must return same number of results as input items'
+          )
+        );
+      });
+      return;
+    }
+
+    currentQueue.forEach((q, index) => {
+      const result = results[index];
+      if (result === undefined) {
+        q.reject(new Error('Batch function returned undefined result'));
+      } else {
+        q.resolve(result);
+      }
+    });
+  };
+
+  /**
+   * Process results returned as a Map
+   */
+  const processMapResults = (
+    results: Map<string, R>,
+    currentQueue: QueueItem<Args, R>[]
+  ) => {
+    for (const q of currentQueue) {
+      const key = getKey(q.args);
+      const result = results.get(key);
+      if (result === undefined) {
+        q.reject(
+          new Error('Batch function must return a result for each input item')
+        );
+      } else {
+        q.resolve(result);
+      }
+    }
+  };
+
   const processQueue = async () => {
     if (queue.length === 0) return;
 
@@ -64,40 +112,9 @@ export function createCollapser<Args extends any[], R>(
       const results = await batchFn(argsArray);
 
       if (results instanceof Map) {
-        // Handle Map return type
-        for (const q of currentQueue) {
-          const key = getKey(q.args);
-          const result = results.get(key);
-          if (result === undefined) {
-            q.reject(
-              new Error(
-                'Batch function must return a result for each input item'
-              )
-            );
-          } else {
-            q.resolve(result);
-          }
-        }
+        processMapResults(results, currentQueue);
       } else {
-        // Handle Array return type
-        if (results.length !== currentQueue.length) {
-          currentQueue.forEach(q => {
-            q.reject(
-              new Error(
-                'Batch function must return same number of results as input items'
-              )
-            );
-          });
-        } else {
-          currentQueue.forEach((q, index) => {
-            const result = results[index];
-            if (result === undefined) {
-              q.reject(new Error('Batch function returned undefined result'));
-            } else {
-              q.resolve(result);
-            }
-          });
-        }
+        processArrayResults(results, currentQueue);
       }
     } catch (error) {
       // Ensure error is always an Error object
