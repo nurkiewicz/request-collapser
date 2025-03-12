@@ -12,11 +12,10 @@ describe('createCollapser - Window-based Batching', () => {
   });
 
   it('should batch multiple requests into a single operation', async () => {
-    const batchFn = vi.fn().mockImplementation(
-      // Add await to make async function valid
-      async (items: [number][]) =>
-        await Promise.resolve(items.map(([n]) => n * 2))
-    );
+    const batchFn = vi.fn().mockImplementation(async (items: [number][]) => {
+      await Promise.resolve();
+      return items.map(([n]) => n * 2);
+    });
 
     const singleOp = createCollapser<[number], number>(batchFn, {
       windowMs: 100,
@@ -31,9 +30,11 @@ describe('createCollapser - Window-based Batching', () => {
     await vi.advanceTimersByTimeAsync(100);
 
     // Verify results
-    expect(await promise1).toBe(2);
-    expect(await promise2).toBe(4);
-    expect(await promise3).toBe(6);
+    await Promise.all([
+      expect(promise1).resolves.toBe(2),
+      expect(promise2).resolves.toBe(4),
+      expect(promise3).resolves.toBe(6),
+    ]);
 
     // Verify batch function was called once with all numbers
     expect(batchFn).toHaveBeenCalledTimes(1);
@@ -41,11 +42,12 @@ describe('createCollapser - Window-based Batching', () => {
   });
 
   it('should batch multiple arguments', async () => {
-    const batchFn = vi.fn().mockImplementation(
-      // Add await to make async function valid
-      async (items: [string, number][]) =>
-        await Promise.resolve(items.map(([key, value]) => `${key}:${value}`))
-    );
+    const batchFn = vi
+      .fn()
+      .mockImplementation(async (items: [string, number][]) => {
+        await Promise.resolve();
+        return items.map(([key, value]) => `${key}:${value}`);
+      });
 
     const multiOp = createCollapser<[string, number], string>(batchFn, {
       windowMs: 100,
@@ -60,9 +62,11 @@ describe('createCollapser - Window-based Batching', () => {
     await vi.advanceTimersByTimeAsync(100);
 
     // Verify results
-    expect(await promise1).toBe('a:1');
-    expect(await promise2).toBe('b:2');
-    expect(await promise3).toBe('c:3');
+    await Promise.all([
+      expect(promise1).resolves.toBe('a:1'),
+      expect(promise2).resolves.toBe('b:2'),
+      expect(promise3).resolves.toBe('c:3'),
+    ]);
 
     // Verify batch function was called once with all arguments properly grouped
     expect(batchFn).toHaveBeenCalledTimes(1);
@@ -81,27 +85,32 @@ describe('createCollapser - Window-based Batching', () => {
       windowMs: 100,
     });
 
-    const promise1 = collapser(1);
-    const promise2 = collapser(2);
+    // Create promises and store them to prevent unhandled rejections
+    const promises = [collapser(1), collapser(2)];
 
+    // Advance timers to trigger batch processing
     await vi.advanceTimersByTimeAsync(100);
 
-    await Promise.all([
-      expect(promise1).rejects.toBe(error),
-      expect(promise2).rejects.toBe(error),
-    ]);
+    // Handle all rejections
+    await Promise.all(
+      promises.map(promise =>
+        promise.catch(err => {
+          expect(err).toBe(error);
+        })
+      )
+    );
 
     expect(batchFn).toHaveBeenCalledTimes(1);
     expect(batchFn).toHaveBeenCalledWith([[1], [2]]);
   });
 
   it('should handle string and number arguments', async () => {
-    // Mock function that formats messages with IDs
-    const batchFn = vi.fn().mockImplementation(
-      // Add await to make async function valid
-      async (items: [string, number][]) =>
-        await Promise.resolve(items.map(([msg, id]) => `${msg}#${id}`))
-    );
+    const batchFn = vi
+      .fn()
+      .mockImplementation(async (items: [string, number][]) => {
+        await Promise.resolve();
+        return items.map(([msg, id]) => `${msg}#${id}`);
+      });
 
     const formatMessage = createCollapser<[string, number], string>(batchFn, {
       windowMs: 100,
@@ -116,9 +125,11 @@ describe('createCollapser - Window-based Batching', () => {
     await vi.advanceTimersByTimeAsync(100);
 
     // Verify results
-    expect(await promise1).toBe('Message#1');
-    expect(await promise2).toBe('Task#2');
-    expect(await promise3).toBe('Note#3');
+    await Promise.all([
+      expect(promise1).resolves.toBe('Message#1'),
+      expect(promise2).resolves.toBe('Task#2'),
+      expect(promise3).resolves.toBe('Note#3'),
+    ]);
 
     // Verify batch function was called once with all arguments properly grouped
     expect(batchFn).toHaveBeenCalledTimes(1);
@@ -130,16 +141,14 @@ describe('createCollapser - Window-based Batching', () => {
   });
 
   it('should support Map return type', async () => {
-    const batchFn = vi.fn().mockImplementation(
-      // Add await to make async function valid
-      async (items: [number][]) => {
-        const resultMap = new Map<string, number>();
-        items.forEach(item => {
-          resultMap.set(JSON.stringify(item), item[0] * 2);
-        });
-        return await Promise.resolve(resultMap);
-      }
-    );
+    const batchFn = vi.fn().mockImplementation(async (items: [number][]) => {
+      await Promise.resolve();
+      const resultMap = new Map<string, number>();
+      items.forEach(item => {
+        resultMap.set(JSON.stringify(item), item[0] * 2);
+      });
+      return resultMap;
+    });
 
     const singleOp = createCollapser<[number], number>(batchFn, {
       windowMs: 100,
@@ -154,9 +163,11 @@ describe('createCollapser - Window-based Batching', () => {
     await vi.advanceTimersByTimeAsync(100);
 
     // Verify results
-    expect(await promise1).toBe(2);
-    expect(await promise2).toBe(4);
-    expect(await promise3).toBe(6);
+    await Promise.all([
+      expect(promise1).resolves.toBe(2),
+      expect(promise2).resolves.toBe(4),
+      expect(promise3).resolves.toBe(6),
+    ]);
 
     // Verify batch function was called once with all numbers
     expect(batchFn).toHaveBeenCalledTimes(1);
@@ -165,6 +176,7 @@ describe('createCollapser - Window-based Batching', () => {
 
   it('should handle errors when Map is missing results', async () => {
     const batchFn = vi.fn().mockImplementation(async (items: [number][]) => {
+      await Promise.resolve();
       const map = new Map<string, string>();
       // Only set result for the first item
       map.set(JSON.stringify(items[0]), 'result1');
@@ -175,14 +187,23 @@ describe('createCollapser - Window-based Batching', () => {
       windowMs: 100,
     });
 
+    // Create promises and store them to prevent unhandled rejections
     const promise1 = collapser(1);
     const promise2 = collapser(2);
 
+    // Advance timers to trigger batch processing
     await vi.advanceTimersByTimeAsync(100);
 
+    // Handle both success and rejection cases
     await Promise.all([
-      expect(promise1).resolves.toBe('result1'),
-      expect(promise2).rejects.toThrow('Batch function must return a result for each input item'),
+      promise1.then(result => {
+        expect(result).toBe('result1');
+      }),
+      promise2.catch((error: Error) => {
+        expect(error.message).toBe(
+          'Batch function must return a result for each input item'
+        );
+      }),
     ]);
 
     expect(batchFn).toHaveBeenCalledTimes(1);

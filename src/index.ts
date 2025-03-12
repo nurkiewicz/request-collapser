@@ -5,7 +5,7 @@ export interface CollapserOptions {
    * Time window in milliseconds before batch is executed
    * @default 100
    */
-  windowMs?: number;
+  windowMs: number;
 
   /**
    * Maximum batch size before forced execution
@@ -18,17 +18,17 @@ export interface CollapserOptions {
  * Queue item representing a single operation in the batch
  * @private
  */
-type QueueItem<Args, R> = {
-  args: Args;
+export type QueueItem<R> = {
   resolve: (value: R) => void;
-  reject: (error: unknown) => void;
+  reject: (error: Error) => void;
+  key: string;
 };
 
 /**
  * Type for batch function return value - either an array of results
  * or a map from input tuple to result
  */
-type BatchReturn<Args extends any[], R> = R[] | Map<string, R>;
+export type BatchReturn<R> = R[] | Map<string, R>;
 
 /**
  * Creates a function that collapses individual operations into batches
@@ -37,12 +37,12 @@ type BatchReturn<Args extends any[], R> = R[] | Map<string, R>;
  * @returns Function that processes single items by batching them
  */
 export function createCollapser<Args extends any[], R>(
-  batchFn: (items: Args[]) => Promise<BatchReturn<Args, R>>,
+  batchFn: (items: Args[]) => Promise<BatchReturn<R>>,
   options: CollapserOptions = {}
 ): (...args: Args) => Promise<R> {
   const { windowMs = 100, maxSize = 32 } = options;
 
-  let queue: QueueItem<Args, R>[] = [];
+  let queue: QueueItem<R>[] = [];
   let timeoutId: NodeJS.Timeout | undefined;
 
   /**
@@ -60,16 +60,20 @@ export function createCollapser<Args extends any[], R>(
     timeoutId = undefined;
 
     try {
-      const argsArray = currentQueue.map(q => q.args);
+      const argsArray = currentQueue.map(q => q.key);
       const results = await batchFn(argsArray);
 
       if (results instanceof Map) {
         // Handle Map return type
         for (const q of currentQueue) {
-          const key = getKey(q.args);
+          const key = getKey(q.key);
           const result = results.get(key);
           if (result === undefined) {
-            q.reject(new Error('Batch function must return a result for each input item'));
+            q.reject(
+              new Error(
+                'Batch function must return a result for each input item'
+              )
+            );
           } else {
             q.resolve(result);
           }
@@ -78,7 +82,11 @@ export function createCollapser<Args extends any[], R>(
         // Handle Array return type
         if (results.length !== currentQueue.length) {
           currentQueue.forEach(q => {
-            q.reject(new Error('Batch function must return same number of results as input items'));
+            q.reject(
+              new Error(
+                'Batch function must return same number of results as input items'
+              )
+            );
           });
         } else {
           currentQueue.forEach((q, index) => {
@@ -107,7 +115,7 @@ export function createCollapser<Args extends any[], R>(
 
   return (...args: Args): Promise<R> => {
     return new Promise((resolve, reject) => {
-      queue.push({ args, resolve, reject });
+      queue.push({ key: args, resolve, reject });
 
       if (queue.length >= maxSize) {
         if (timeoutId !== undefined) {
