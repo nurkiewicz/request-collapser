@@ -1,10 +1,9 @@
-export const myPackage = (taco = ''): string => `${taco} from my package`;
-
 /**
  * Creates a function that processes individual items by batching them
  * @param batchProcessor Function that processes an array of items and returns a map of results
  * @returns Function that processes a single item and returns its result
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type PendingPromise<T, S> = {
   resolve: (value: S) => void;
   reject: (error: unknown) => void;
