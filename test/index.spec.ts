@@ -1,8 +1,15 @@
 import { createRequestCollapser } from '../src';
 
 describe('createRequestCollapser', () => {
+  let batchProcessor: jest.Mock;
+
   beforeEach(() => {
     jest.useFakeTimers();
+    batchProcessor = jest.fn().mockImplementation(async (items: number[]) => {
+      const result = new Map<number, string>();
+      items.forEach(item => result.set(item, `processed-${item}`));
+      return Promise.resolve(result);
+    });
   });
 
   afterEach(() => {
@@ -11,14 +18,6 @@ describe('createRequestCollapser', () => {
 
   it('should batch multiple requests into a single batch operation', async () => {
     // Arrange
-    const batchProcessor = jest
-      .fn()
-      .mockImplementation(async (items: number[]) => {
-        const result = new Map<number, string>();
-        items.forEach(item => result.set(item, `processed-${item}`));
-        return Promise.resolve(result);
-      });
-
     const collapser = createRequestCollapser<number, string>(batchProcessor);
 
     // Act
@@ -45,14 +44,6 @@ describe('createRequestCollapser', () => {
 
   it('should respect custom timeoutMillis option', async () => {
     // Arrange
-    const batchProcessor = jest
-      .fn()
-      .mockImplementation(async (items: number[]) => {
-        const result = new Map<number, string>();
-        items.forEach(item => result.set(item, `processed-${item}`));
-        return Promise.resolve(result);
-      });
-
     const customTimeout = 500;
     const collapser = createRequestCollapser<number, string>(batchProcessor, {
       timeoutMillis: customTimeout,
@@ -77,14 +68,6 @@ describe('createRequestCollapser', () => {
 
   it('should use default timeoutMillis when no options provided', async () => {
     // Arrange
-    const batchProcessor = jest
-      .fn()
-      .mockImplementation(async (items: number[]) => {
-        const result = new Map<number, string>();
-        items.forEach(item => result.set(item, `processed-${item}`));
-        return Promise.resolve(result);
-      });
-
     const collapser = createRequestCollapser<number, string>(batchProcessor);
 
     // Act
