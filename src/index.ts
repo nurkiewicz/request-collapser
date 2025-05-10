@@ -1,6 +1,18 @@
 /**
+ * Options for configuring the request collapser
+ */
+export interface RequestCollapserOptions {
+  /**
+   * Timeout in milliseconds before processing the batch of requests
+   * @default 100
+   */
+  timeoutMillis?: number;
+}
+
+/**
  * Creates a function that processes individual items by batching them
  * @param batchProcessor Function that processes an array of items and returns a map of results
+ * @param options Configuration options for the request collapser
  * @returns Function that processes a single item and returns its result
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -10,8 +22,10 @@ type PendingPromise<T, S> = {
 };
 
 export function createRequestCollapser<T, S>(
-  batchProcessor: (items: T[]) => Promise<Map<T, S>>
+  batchProcessor: (items: T[]) => Promise<Map<T, S>>,
+  options: RequestCollapserOptions = {}
 ): (item: T) => Promise<S> {
+  const { timeoutMillis = 100 } = options;
   let queue: T[] = [];
   let timeout: NodeJS.Timeout | null = null;
   const pendingPromises: Map<T, PendingPromise<T, S>> = new Map();
@@ -43,7 +57,7 @@ export function createRequestCollapser<T, S>(
               }
               pendingPromises.clear();
             });
-        }, 100);
+        }, timeoutMillis);
       }
     });
   };

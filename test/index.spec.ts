@@ -1,13 +1,23 @@
 import { createRequestCollapser } from '../src';
 
 describe('createRequestCollapser', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('should batch multiple requests into a single batch operation', async () => {
     // Arrange
-    const batchProcessor = jest.fn().mockImplementation((items: number[]) => {
-      const result = new Map<number, string>();
-      items.forEach(item => result.set(item, `processed-${item}`));
-      return result;
-    });
+    const batchProcessor = jest
+      .fn()
+      .mockImplementation(async (items: number[]) => {
+        const result = new Map<number, string>();
+        items.forEach(item => result.set(item, `processed-${item}`));
+        return Promise.resolve(result);
+      });
 
     const collapser = createRequestCollapser<number, string>(batchProcessor);
 
@@ -15,6 +25,9 @@ describe('createRequestCollapser', () => {
     const promise1 = collapser(1);
     const promise2 = collapser(2);
     const promise3 = collapser(3);
+
+    // Fast-forward time to trigger the batch processing
+    jest.advanceTimersByTime(100);
 
     // Assert
     const [result1, result2, result3] = await Promise.all([
@@ -28,5 +41,66 @@ describe('createRequestCollapser', () => {
     expect(result1).toBe('processed-1');
     expect(result2).toBe('processed-2');
     expect(result3).toBe('processed-3');
+  });
+
+  it('should respect custom timeoutMillis option', async () => {
+    // Arrange
+    const batchProcessor = jest
+      .fn()
+      .mockImplementation(async (items: number[]) => {
+        const result = new Map<number, string>();
+        items.forEach(item => result.set(item, `processed-${item}`));
+        return Promise.resolve(result);
+      });
+
+    const customTimeout = 500;
+    const collapser = createRequestCollapser<number, string>(batchProcessor, {
+      timeoutMillis: customTimeout,
+    });
+
+    // Act
+    const promise = collapser(1);
+
+    // Fast-forward time by less than the custom timeout
+    jest.advanceTimersByTime(customTimeout - 100);
+    expect(batchProcessor).not.toHaveBeenCalled();
+
+    // Fast-forward to the custom timeout
+    jest.advanceTimersByTime(100);
+    const result = await promise;
+
+    // Assert
+    expect(batchProcessor).toHaveBeenCalledTimes(1);
+    expect(batchProcessor).toHaveBeenCalledWith([1]);
+    expect(result).toBe('processed-1');
+  });
+
+  it('should use default timeoutMillis when no options provided', async () => {
+    // Arrange
+    const batchProcessor = jest
+      .fn()
+      .mockImplementation(async (items: number[]) => {
+        const result = new Map<number, string>();
+        items.forEach(item => result.set(item, `processed-${item}`));
+        return Promise.resolve(result);
+      });
+
+    const collapser = createRequestCollapser<number, string>(batchProcessor);
+
+    // Act
+    const promise = collapser(1);
+
+    // Fast-forward time by less than the default timeout
+    jest.advanceTimersByTime(50);
+    expect(batchProcessor).not.toHaveBeenCalled();
+
+    // Fast-forward to the default timeout
+    jest.advanceTimersByTime(50);
+    const result = await promise;
+
+    // Assert
+    expect(batchProcessor).toHaveBeenCalledTimes(1);
+    expect(batchProcessor).toHaveBeenCalledWith([1]);
+    expect(result).toBe('processed-1');
   });
 });
