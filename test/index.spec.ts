@@ -1,11 +1,12 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRequestCollapser } from '../src';
 
 describe('createRequestCollapser', () => {
-  let batchProcessor: jest.Mock;
+  let batchProcessor: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    jest.useFakeTimers();
-    batchProcessor = jest.fn().mockImplementation(async (items: number[]) => {
+    vi.useFakeTimers();
+    batchProcessor = vi.fn().mockImplementation(async (items: number[]) => {
       const result = new Map<number, string>();
       items.forEach(item => result.set(item, `processed-${item}`));
       return Promise.resolve(result);
@@ -13,7 +14,7 @@ describe('createRequestCollapser', () => {
   });
 
   afterEach(() => {
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   it('should batch multiple requests into a single batch operation', async () => {
@@ -26,7 +27,7 @@ describe('createRequestCollapser', () => {
     const promise3 = collapser(3);
 
     // Fast-forward time to trigger the batch processing
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
 
     // Assert
     const [result1, result2, result3] = await Promise.all([
@@ -53,11 +54,11 @@ describe('createRequestCollapser', () => {
     const promise = collapser(1);
 
     // Fast-forward time by less than the custom timeout
-    jest.advanceTimersByTime(customTimeout - 100);
+    vi.advanceTimersByTime(customTimeout - 100);
     expect(batchProcessor).not.toHaveBeenCalled();
 
     // Fast-forward to the custom timeout
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     const result = await promise;
 
     // Assert
@@ -74,11 +75,11 @@ describe('createRequestCollapser', () => {
     const promise = collapser(1);
 
     // Fast-forward time by less than the default timeout
-    jest.advanceTimersByTime(50);
+    vi.advanceTimersByTime(50);
     expect(batchProcessor).not.toHaveBeenCalled();
 
     // Fast-forward to the default timeout
-    jest.advanceTimersByTime(50);
+    vi.advanceTimersByTime(50);
     const result = await promise;
 
     // Assert
