@@ -15,8 +15,7 @@ export interface RequestCollapserOptions {
  * @param options Configuration options for the request collapser
  * @returns Function that processes a single item and returns its result
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-type PendingPromise<T, S> = {
+type PendingPromise<S> = {
   resolve: (value: S) => void;
   reject: (error: unknown) => void;
 };
@@ -43,7 +42,7 @@ export function createRequestCollapser<T, S>(
   const { timeoutMillis = 100 } = options;
   let queue: T[] = [];
   let timeout: NodeJS.Timeout | null = null;
-  const pendingPromises: Map<T, PendingPromise<T, S>> = new Map();
+  const pendingPromises: Map<T, PendingPromise<S>> = new Map();
 
   const processBatch = async () => {
     const items = [...queue];
