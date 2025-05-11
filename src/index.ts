@@ -21,44 +21,80 @@ type PendingPromise<T, S> = {
   reject: (error: unknown) => void;
 };
 
+export interface RequestCollapser<T, S> {
+  /**
+   * Process a single item by adding it to the batch
+   */
+  process: (item: T) => Promise<S>;
+  /**
+   * Force processing of all pending items immediately
+   */
+  flush: () => Promise<void>;
+  /**
+   * Get the current number of items in the queue
+   */
+  getQueueLength: () => number;
+}
+
 export function createRequestCollapser<T, S>(
   batchProcessor: (items: T[]) => Promise<Map<T, S>>,
   options: RequestCollapserOptions = {}
-): (item: T) => Promise<S> {
+): RequestCollapser<T, S> {
   const { timeoutMillis = 100 } = options;
   let queue: T[] = [];
   let timeout: NodeJS.Timeout | null = null;
   const pendingPromises: Map<T, PendingPromise<T, S>> = new Map();
 
-  return async (item: T): Promise<S> => {
+  const processBatch = async () => {
+    const items = [...queue];
+    queue = [];
+    timeout = null;
+
+    try {
+      const results = await batchProcessor(items);
+      for (const [item, result] of results) {
+        const promise = pendingPromises.get(item);
+        if (promise) {
+          promise.resolve(result);
+          pendingPromises.delete(item);
+        }
+      }
+    } catch (error) {
+      for (const promise of pendingPromises.values()) {
+        promise.reject(error);
+      }
+      pendingPromises.clear();
+    }
+  };
+
+  const process = async (item: T): Promise<S> => {
     return new Promise((resolve, reject) => {
       queue.push(item);
       pendingPromises.set(item, { resolve, reject });
 
       if (!timeout) {
         timeout = setTimeout(() => {
-          const items = [...queue];
-          queue = [];
-          timeout = null;
-
-          batchProcessor(items)
-            .then(results => {
-              for (const [item, result] of results) {
-                const promise = pendingPromises.get(item);
-                if (promise) {
-                  promise.resolve(result);
-                  pendingPromises.delete(item);
-                }
-              }
-            })
-            .catch(error => {
-              for (const promise of pendingPromises.values()) {
-                promise.reject(error);
-              }
-              pendingPromises.clear();
-            });
+          void processBatch();
         }, timeoutMillis);
       }
     });
+  };
+
+  const flush = async (): Promise<void> => {
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = null;
+    }
+    if (queue.length > 0) {
+      await processBatch();
+    }
+  };
+
+  const getQueueLength = (): number => queue.length;
+
+  return {
+    process,
+    flush,
+    getQueueLength,
   };
 }

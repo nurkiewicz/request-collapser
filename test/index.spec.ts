@@ -19,12 +19,13 @@ describe('createRequestCollapser', () => {
 
   it('should batch multiple requests into a single batch operation', async () => {
     // Arrange
-    const collapser = createRequestCollapser<number, string>(batchProcessor);
+    const process =
+      createRequestCollapser<number, string>(batchProcessor).process;
 
     // Act
-    const promise1 = collapser(1);
-    const promise2 = collapser(2);
-    const promise3 = collapser(3);
+    const promise1 = process(1);
+    const promise2 = process(2);
+    const promise3 = process(3);
 
     // Fast-forward time to trigger the batch processing
     vi.advanceTimersByTime(100);
@@ -46,12 +47,12 @@ describe('createRequestCollapser', () => {
   it('should respect custom timeoutMillis option', async () => {
     // Arrange
     const customTimeout = 500;
-    const collapser = createRequestCollapser<number, string>(batchProcessor, {
+    const process = createRequestCollapser<number, string>(batchProcessor, {
       timeoutMillis: customTimeout,
-    });
+    }).process;
 
     // Act
-    const promise = collapser(1);
+    const promise = process(1);
 
     // Fast-forward time by less than the custom timeout
     vi.advanceTimersByTime(customTimeout - 100);
@@ -69,10 +70,11 @@ describe('createRequestCollapser', () => {
 
   it('should use default timeoutMillis when no options provided', async () => {
     // Arrange
-    const collapser = createRequestCollapser<number, string>(batchProcessor);
+    const process =
+      createRequestCollapser<number, string>(batchProcessor).process;
 
     // Act
-    const promise = collapser(1);
+    const promise = process(1);
 
     // Fast-forward time by less than the default timeout
     vi.advanceTimersByTime(50);
@@ -86,5 +88,42 @@ describe('createRequestCollapser', () => {
     expect(batchProcessor).toHaveBeenCalledTimes(1);
     expect(batchProcessor).toHaveBeenCalledWith([1]);
     expect(result).toBe('processed-1');
+  });
+
+  it('should allow forcing batch processing with flush', async () => {
+    // Arrange
+    const { process, flush } =
+      createRequestCollapser<number, string>(batchProcessor);
+
+    // Act
+    const promise = process(1);
+    await flush();
+
+    // Assert
+    const result = await promise;
+    expect(batchProcessor).toHaveBeenCalledTimes(1);
+    expect(batchProcessor).toHaveBeenCalledWith([1]);
+    expect(result).toBe('processed-1');
+  });
+
+  it('should report correct queue length', async () => {
+    // Arrange
+    const { process, getQueueLength } =
+      createRequestCollapser<number, string>(batchProcessor);
+
+    // Act & Assert
+    expect(getQueueLength()).toBe(0);
+
+    const promise1 = process(1);
+    expect(getQueueLength()).toBe(1);
+
+    const promise2 = process(2);
+    expect(getQueueLength()).toBe(2);
+
+    // Fast-forward time to trigger the batch processing
+    vi.advanceTimersByTime(100);
+    await Promise.all([promise1, promise2]);
+
+    expect(getQueueLength()).toBe(0);
   });
 });
