@@ -12,6 +12,11 @@ export interface RequestCollapserOptions {
    * @default false
    */
   debounce?: boolean;
+  /**
+   * Maximum number of items that can be queued before forcing immediate processing
+   * @default undefined (no limit)
+   */
+  maxQueueLength?: number;
 }
 
 /**
@@ -48,7 +53,7 @@ export function createRequestCollapser<T, S>(
   batchProcessor: (items: T[]) => Promise<Map<T, S>>,
   options: RequestCollapserOptions = {}
 ): RequestCollapser<T, S> {
-  const { timeoutMillis = 100, debounce = false } = options;
+  const { timeoutMillis = 100, debounce = false, maxQueueLength } = options;
   let queue: T[] = [];
   let timeout: NodeJS.Timeout | null = null;
   let closed = false;
@@ -96,7 +101,14 @@ export function createRequestCollapser<T, S>(
       queue.push(item);
       pendingPromises.set(item, { resolve, reject });
 
-      if (!timeout || debounce) {
+      if (maxQueueLength !== undefined && queue.length >= maxQueueLength) {
+        // If we've hit the max queue length, process immediately
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
+        void processBatch();
+      } else if (!timeout || debounce) {
         scheduleBatch();
       }
     });
