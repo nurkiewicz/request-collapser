@@ -7,6 +7,11 @@ export interface RequestCollapserOptions {
    * @default 100
    */
   timeoutMillis?: number;
+  /**
+   * If true, each new item will reset the timeout
+   * @default false
+   */
+  debounce?: boolean;
 }
 
 /**
@@ -33,18 +38,25 @@ export interface RequestCollapser<T, S> {
    * Get the current number of items in the queue
    */
   getQueueLength: () => number;
+  /**
+   * Stop the collapser and clear any pending timeouts
+   */
+  close: () => void;
 }
 
 export function createRequestCollapser<T, S>(
   batchProcessor: (items: T[]) => Promise<Map<T, S>>,
   options: RequestCollapserOptions = {}
 ): RequestCollapser<T, S> {
-  const { timeoutMillis = 100 } = options;
+  const { timeoutMillis = 100, debounce = false } = options;
   let queue: T[] = [];
   let timeout: NodeJS.Timeout | null = null;
+  let closed = false;
   const pendingPromises: Map<T, PendingPromise<S>> = new Map();
 
   const processBatch = async () => {
+    if (closed) return;
+
     const items = [...queue];
     queue = [];
     timeout = null;
@@ -66,20 +78,33 @@ export function createRequestCollapser<T, S>(
     }
   };
 
+  const scheduleBatch = () => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    timeout = setTimeout(() => {
+      void processBatch();
+    }, timeoutMillis);
+  };
+
   const process = async (item: T): Promise<S> => {
+    if (closed) {
+      throw new Error('Request collapser was closed');
+    }
+
     return new Promise((resolve, reject) => {
       queue.push(item);
       pendingPromises.set(item, { resolve, reject });
 
-      if (!timeout) {
-        timeout = setTimeout(() => {
-          void processBatch();
-        }, timeoutMillis);
+      if (!timeout || debounce) {
+        scheduleBatch();
       }
     });
   };
 
   const flush = async (): Promise<void> => {
+    if (closed) return;
+
     if (timeout) {
       clearTimeout(timeout);
       timeout = null;
@@ -91,9 +116,23 @@ export function createRequestCollapser<T, S>(
 
   const getQueueLength = (): number => queue.length;
 
+  const close = (): void => {
+    closed = true;
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = null;
+    }
+    queue = [];
+    for (const promise of pendingPromises.values()) {
+      promise.reject(new Error('Request collapser was closed'));
+    }
+    pendingPromises.clear();
+  };
+
   return {
     process,
     flush,
     getQueueLength,
+    close,
   };
 }
