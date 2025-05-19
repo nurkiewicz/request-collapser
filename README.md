@@ -1,3 +1,5 @@
+
+
 # Use cases
 * collapse multiple, independent requests, into a single batch one
 * batch GET requests, database inserts, message publishing
