@@ -59,7 +59,7 @@ export function createRequestCollapser<T, S>(
   let closed = false;
   const pendingPromises: Map<T, PendingPromise<S>> = new Map();
 
-  const processBatch = async () => {
+  const processBatch = async (): Promise<void> => {
     if (closed) return;
 
     const items = [...queue];
@@ -83,7 +83,7 @@ export function createRequestCollapser<T, S>(
     }
   };
 
-  const scheduleBatch = () => {
+  const scheduleBatch = (): void => {
     if (timeout) {
       clearTimeout(timeout);
     }
