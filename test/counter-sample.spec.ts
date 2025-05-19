@@ -53,9 +53,7 @@ describe('BatchedCounterService', () => {
     await Promise.all(promises);
 
     // then
-    // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(vi.mocked(counterService.incBy).mock.calls.length).toBe(1);
-    // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(vi.mocked(counterService.incBy).mock.calls[0][0]).toBe(15); // sum of all increments
   });
 
@@ -74,9 +72,7 @@ describe('BatchedCounterService', () => {
     await Promise.all([...firstPromises, ...secondPromises]);
 
     // then
-    // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(vi.mocked(counterService.incBy).mock.calls.length).toBe(1);
-    // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(vi.mocked(counterService.incBy).mock.calls[0][0]).toBe(21); // sum of all increments
   });
 
@@ -88,9 +84,7 @@ describe('BatchedCounterService', () => {
     await batchedCounterService.incBy(value);
 
     // then
-    // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(vi.mocked(counterService.incBy).mock.calls.length).toBe(1);
-    // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(vi.mocked(counterService.incBy).mock.calls[0][0]).toBe(value);
   });
 });
