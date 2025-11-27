@@ -1,151 +1,168 @@
-/// <reference types="node" />
-
-export interface CollapserOptions {
+/**
+ * Options for configuring the request collapser
+ */
+export interface RequestCollapserOptions {
   /**
-   * Time window in milliseconds before batch is executed
+   * Timeout in milliseconds before processing the batch of requests
    * @default 100
    */
-  windowMs: number;
-
+  timeoutMillis?: number;
   /**
-   * Maximum batch size before forced execution
-   * @default 32
+   * If true, each new item will reset the timeout
+   * @default false
    */
-  maxSize?: number;
+  debounce?: boolean;
+  /**
+   * Maximum number of items that can be queued before forcing immediate processing
+   * @default undefined (no limit)
+   */
+  maxQueueLength?: number;
 }
 
 /**
- * Queue item representing a single operation in the batch
- * @private
+ * Creates a function that processes individual items by batching them
+ * @param batchProcessor Function that processes an array of items and returns a map of results
+ * @param options Configuration options for the request collapser
+ * @returns Function that processes a single item and returns its result
  */
-export type QueueItem<Args extends any[], R> = {
-  args: Args;
-  resolve: (value: R) => void;
-  reject: (error: Error) => void;
+type PendingPromise<S> = {
+  resolve: (value: S) => void;
+  reject: (error: unknown) => void;
 };
 
-/**
- * Type for batch function return value - either an array of results
- * or a map from input tuple to result
- */
-export type BatchReturn<R> = R[] | Map<string, R>;
-
-/**
- * Creates a function that collapses individual operations into batches
- * @param batchFn Function that processes items in batches
- * @param options Configuration options
- * @returns Function that processes single items by batching them
- */
-export function createCollapser<Args extends any[], R>(
-  batchFn: (items: Args[]) => Promise<BatchReturn<R>>,
-  options: Partial<CollapserOptions> = { windowMs: 100 }
-): (...args: Args) => Promise<R> {
-  const { windowMs = 100, maxSize = 32 } = options;
-
-  let queue: QueueItem<Args, R>[] = [];
-  let timeoutId: NodeJS.Timeout | undefined;
-
+export interface RequestCollapser<T, S> {
   /**
-   * Generate a stable key for the Map from the arguments tuple
+   * Process a single item by adding it to the batch
    */
-  const getKey = (args: Args): string => {
-    return JSON.stringify(args);
-  };
-
+  process: (item: T) => Promise<S>;
   /**
-   * Process results returned as an array
+   * Force processing of all pending items immediately
    */
-  const processArrayResults = (
-    results: R[],
-    currentQueue: QueueItem<Args, R>[]
-  ) => {
-    if (results.length !== currentQueue.length) {
-      currentQueue.forEach(q => {
-        q.reject(
-          new Error(
-            'Batch function must return same number of results as input items'
-          )
-        );
-      });
-      return;
-    }
-
-    currentQueue.forEach((q, index) => {
-      const result = results[index];
-      if (result === undefined) {
-        q.reject(new Error('Batch function returned undefined result'));
-      } else {
-        q.resolve(result);
-      }
-    });
-  };
-
+  flush: () => Promise<void>;
   /**
-   * Process results returned as a Map
+   * Get the current number of items in the queue
    */
-  const processMapResults = (
-    results: Map<string, R>,
-    currentQueue: QueueItem<Args, R>[]
-  ) => {
-    for (const q of currentQueue) {
-      const key = getKey(q.args);
-      const result = results.get(key);
-      if (result === undefined) {
-        q.reject(
-          new Error('Batch function must return a result for each input item')
-        );
-      } else {
-        q.resolve(result);
-      }
-    }
-  };
+  getQueueLength: () => number;
+  /**
+   * Stop the collapser and clear any pending timeouts
+   */
+  close: () => void;
+}
 
-  const processQueue = async () => {
-    if (queue.length === 0) return;
+export function createRequestCollapser<T, S>(
+  batchProcessor: (items: T[]) => Promise<Map<T, S>>,
+  options: RequestCollapserOptions = {}
+): RequestCollapser<T, S> {
+  const { timeoutMillis = 100, debounce = false, maxQueueLength } = options;
+  let queue: T[] = [];
+  let timeout: NodeJS.Timeout | null = null;
+  let closed = false;
+  const pendingPromises: Map<T, PendingPromise<S>> = new Map();
 
-    const currentQueue = queue;
+  const processBatch = async (): Promise<void> => {
+    if (closed) return;
+
+    const items = [...queue];
     queue = [];
-    timeoutId = undefined;
+    timeout = null;
+
+    // Capture promises for this batch only
+    const batchPromises = new Map<T, PendingPromise<S>>();
+    for (const item of items) {
+      const promise = pendingPromises.get(item);
+      if (promise) {
+        batchPromises.set(item, promise);
+        pendingPromises.delete(item);
+      }
+    }
 
     try {
-      const argsArray = currentQueue.map(q => q.args);
-      const results = await batchFn(argsArray);
-
-      if (results instanceof Map) {
-        processMapResults(results, currentQueue);
-      } else {
-        processArrayResults(results, currentQueue);
+      const results = await batchProcessor(items);
+      for (const [item, result] of results) {
+        const promise = batchPromises.get(item);
+        if (promise) {
+          promise.resolve(result);
+          batchPromises.delete(item);
+        }
+      }
+      // Reject any items that weren't returned by the batch processor
+      for (const [item, promise] of batchPromises) {
+        promise.reject(
+          new Error(
+            `Batch processor did not return result for item: ${String(item)}`
+          )
+        );
       }
     } catch (error) {
-      // Ensure error is always an Error object
-      const errorToUse =
-        error instanceof Error ? error : new Error(String(error));
-      currentQueue.forEach(q => q.reject(errorToUse));
-    }
-
-    // Process any remaining items in the queue
-    if (queue.length > 0) {
-      if (queue.length >= maxSize) {
-        void processQueue();
-      } else {
-        timeoutId = setTimeout(() => void processQueue(), windowMs);
+      // Only reject promises for items in this batch
+      for (const promise of batchPromises.values()) {
+        promise.reject(error);
       }
     }
   };
 
-  return (...args: Args): Promise<R> => {
-    return new Promise((resolve, reject) => {
-      queue.push({ args, resolve, reject });
+  const scheduleBatch = (): void => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    timeout = setTimeout(() => {
+      void processBatch();
+    }, timeoutMillis);
+  };
 
-      if (queue.length >= maxSize) {
-        if (timeoutId !== undefined) {
-          clearTimeout(timeoutId);
-          timeoutId = undefined;
+  const process = async (item: T): Promise<S> => {
+    if (closed) {
+      throw new Error('Request collapser was closed');
+    }
+
+    return new Promise((resolve, reject) => {
+      queue.push(item);
+      pendingPromises.set(item, { resolve, reject });
+
+      if (maxQueueLength !== undefined && queue.length >= maxQueueLength) {
+        // If we've hit the max queue length, process immediately
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
         }
-        void processQueue();
-      } else if (timeoutId === undefined) {
-        timeoutId = setTimeout(() => void processQueue(), windowMs);
+        void processBatch();
+      } else if (!timeout || debounce) {
+        scheduleBatch();
       }
     });
+  };
+
+  const flush = async (): Promise<void> => {
+    if (closed) return;
+
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = null;
+    }
+    if (queue.length > 0) {
+      await processBatch();
+    }
+  };
+
+  const getQueueLength = (): number => queue.length;
+
+  const close = (): void => {
+    closed = true;
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = null;
+    }
+    queue = [];
+    for (const promise of pendingPromises.values()) {
+      promise.reject(new Error('Request collapser was closed'));
+    }
+    pendingPromises.clear();
+  };
+
+  return {
+    process,
+    flush,
+    getQueueLength,
+    close,
   };
 }
