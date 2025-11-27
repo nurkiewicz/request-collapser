@@ -1,7 +1,7 @@
 {
-  "name": "typescript-npm-package-template",
+  "name": "request-collapser",
   "version": "0.0.0-development",
-  "description": "A template for creating npm packages using TypeScript and VSCode",
+  "description": "Batch multiple independent requests into a single operation, reducing overhead and improving throughput",
   "main": "./lib/index.js",
   "files": [
     "lib/**/*"
@@ -19,31 +19,31 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ryansonshine/typescript-npm-package-template.git"
+    "url": "git+https://github.com/nurkiewicz/request-collapser.git"
   },
   "license": "MIT",
   "author": {
     "name": "Tomasz Nurkiewicz",
-    "email": "ryansonshine@users.noreply.github.com",
-    "url": "https://github.com/ryansonshine"
+    "email": "nurkiewicz@gmail.com",
+    "url": "https://github.com/nurkiewicz"
   },
   "engines": {
     "node": ">=12.0"
   },
   "keywords": [
-    "boilerplate",
-    "template",
-    "typescript",
-    "vscode",
-    "husky",
-    "commitizen",
-    "semantic-release",
-    "codecov"
+    "batch",
+    "batching",
+    "request",
+    "collapse",
+    "debounce",
+    "throttle",
+    "queue",
+    "typescript"
   ],
   "bugs": {
-    "url": "https://github.com/ryansonshine/typescript-npm-package-template/issues"
+    "url": "https://github.com/nurkiewicz/request-collapser/issues"
   },
-  "homepage": "https://github.com/ryansonshine/typescript-npm-package-template#readme",
+  "homepage": "https://github.com/nurkiewicz/request-collapser#readme",
   "devDependencies": {
     "@types/node": "^20.17.46",
     "@typescript-eslint/eslint-plugin": "^4.22.0",
@@ -58,7 +58,7 @@
     "prettier": "^2.2.1",
     "semantic-release": "^21.0.1",
     "ts-node": "^10.2.1",
-    "typescript": "^4.2.4",
+    "typescript": "5.7",
     "vitest": "^3.1.3"
   },
   "lint-staged": {

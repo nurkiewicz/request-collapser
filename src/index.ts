@@ -66,20 +66,38 @@ export function createRequestCollapser<T, S>(
     queue = [];
     timeout = null;
 
+    // Capture promises for this batch only
+    const batchPromises = new Map<T, PendingPromise<S>>();
+    for (const item of items) {
+      const promise = pendingPromises.get(item);
+      if (promise) {
+        batchPromises.set(item, promise);
+        pendingPromises.delete(item);
+      }
+    }
+
     try {
       const results = await batchProcessor(items);
       for (const [item, result] of results) {
-        const promise = pendingPromises.get(item);
+        const promise = batchPromises.get(item);
         if (promise) {
           promise.resolve(result);
-          pendingPromises.delete(item);
+          batchPromises.delete(item);
         }
       }
+      // Reject any items that weren't returned by the batch processor
+      for (const [item, promise] of batchPromises) {
+        promise.reject(
+          new Error(
+            `Batch processor did not return result for item: ${String(item)}`
+          )
+        );
+      }
     } catch (error) {
-      for (const promise of pendingPromises.values()) {
+      // Only reject promises for items in this batch
+      for (const promise of batchPromises.values()) {
         promise.reject(error);
       }
-      pendingPromises.clear();
     }
   };
 
