@@ -51,10 +51,12 @@ const collapser = createRequestCollapser(batchProcessor, {
   maxQueueLength: 32, // Process immediately if 32 items are queued
 });
 
-// Use it - these calls will be batched together
-const user1 = await collapser.process(1);
-const user2 = await collapser.process(2);
-const user3 = await collapser.process(3);
+// Use it - concurrent calls will be batched together
+const [user1, user2, user3] = await Promise.all([
+  collapser.process(1),
+  collapser.process(2),
+  collapser.process(3),
+]);
 ```
 
 ## API
