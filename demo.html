@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Request Collapser Demo</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem;
+      background: #f5f5f5;
+      color: #333;
+    }
+
+    h1 {
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      color: #666;
+      margin-bottom: 2rem;
+    }
+
+    .section {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 8px;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .section h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0 0 1rem 0;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .buttons button {
+      padding: 0.75rem 1.5rem;
+      font-size: 1rem;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      background: #4a90d9;
+      color: white;
+      transition: background 0.15s;
+      min-width: 60px;
+    }
+
+    .buttons button:hover {
+      background: #3a7bc8;
+    }
+
+    .buttons button:active {
+      background: #2d6bb3;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .control-group label {
+      font-size: 0.875rem;
+      color: #666;
+    }
+
+    .control-group input {
+      padding: 0.5rem;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 1rem;
+    }
+
+    .control-group input:focus {
+      outline: none;
+      border-color: #4a90d9;
+    }
+
+    .checkbox-group {
+      flex-direction: row;
+      align-items: center;
+    }
+
+    .checkbox-group input {
+      width: auto;
+    }
+
+    .apply-btn {
+      padding: 0.5rem 1rem;
+      background: #5a5a5a;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      align-self: flex-end;
+    }
+
+    .apply-btn:hover {
+      background: #444;
+    }
+
+    .queue-status {
+      font-size: 0.875rem;
+      color: #666;
+      padding: 0.5rem 0;
+    }
+
+    .queue-status span {
+      font-weight: 600;
+      color: #4a90d9;
+    }
+
+    .log {
+      font-family: 'SF Mono', Monaco, 'Consolas', monospace;
+      font-size: 0.8125rem;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 1rem;
+      border-radius: 6px;
+      height: 300px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+
+    .log:empty::before {
+      content: 'No activity yet. Click the buttons above to queue requests.';
+      color: #666;
+    }
+
+    .log-entry {
+      margin-bottom: 0.25rem;
+    }
+
+    .log-time {
+      color: #6a9955;
+    }
+
+    .log-queue {
+      color: #9cdcfe;
+    }
+
+    .log-batch {
+      color: #ce9178;
+    }
+
+    .log-result {
+      color: #dcdcaa;
+    }
+
+    .log-separator {
+      color: #555;
+      margin: 0.5rem 0;
+    }
+
+    .clear-btn {
+      margin-top: 0.75rem;
+      padding: 0.4rem 0.75rem;
+      background: transparent;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.8125rem;
+      color: #666;
+    }
+
+    .clear-btn:hover {
+      background: #f0f0f0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Request Collapser Demo</h1>
+  <p class="subtitle">See how individual requests get batched together</p>
+
+  <div class="section">
+    <h2>Queue Requests</h2>
+    <div class="buttons">
+      <button onclick="queueRequest('A')">A</button>
+      <button onclick="queueRequest('B')">B</button>
+      <button onclick="queueRequest('C')">C</button>
+      <button onclick="queueRequest('D')">D</button>
+      <button onclick="queueRequest('E')">E</button>
+      <button onclick="queueRequest('F')">F</button>
+    </div>
+    <div class="queue-status">
+      Queue: <span id="queueLength">0</span> items
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Settings</h2>
+    <div class="controls">
+      <div class="control-group">
+        <label for="timeout">Timeout (ms)</label>
+        <input type="number" id="timeout" value="500" min="50" max="5000" step="50">
+      </div>
+      <div class="control-group">
+        <label for="maxQueue">Max Queue Length</label>
+        <input type="number" id="maxQueue" value="" placeholder="No limit" min="1" max="20">
+      </div>
+      <div class="control-group checkbox-group">
+        <input type="checkbox" id="debounce">
+        <label for="debounce">Debounce mode</label>
+      </div>
+      <button class="apply-btn" onclick="applySettings()">Apply</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Activity Log</h2>
+    <div class="log" id="log"></div>
+    <button class="clear-btn" onclick="clearLog()">Clear log</button>
+  </div>
+
+  <script>
+    // Browser-compatible version of createRequestCollapser
+    function createRequestCollapser(batchProcessor, options = {}) {
+      const { timeoutMillis = 100, debounce = false, maxQueueLength } = options;
+      let queue = [];
+      let timeout = null;
+      let closed = false;
+      const pendingPromises = new Map();
+
+      const processBatch = async () => {
+        if (closed) return;
+
+        const items = [...queue];
+        queue = [];
+        timeout = null;
+
+        const batchPromises = new Map();
+        for (const item of items) {
+          const promise = pendingPromises.get(item);
+          if (promise) {
+            batchPromises.set(item, promise);
+            pendingPromises.delete(item);
+          }
+        }
+
+        try {
+          const results = await batchProcessor(items);
+          for (const [item, result] of results) {
+            const promise = batchPromises.get(item);
+            if (promise) {
+              promise.resolve(result);
+              batchPromises.delete(item);
+            }
+          }
+          for (const [item, promise] of batchPromises) {
+            promise.reject(new Error(`Batch processor did not return result for item: ${String(item)}`));
+          }
+        } catch (error) {
+          for (const promise of batchPromises.values()) {
+            promise.reject(error);
+          }
+        }
+      };
+
+      const scheduleBatch = () => {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+        timeout = setTimeout(() => {
+          processBatch();
+        }, timeoutMillis);
+      };
+
+      const process = async (item) => {
+        if (closed) {
+          throw new Error('Request collapser was closed');
+        }
+
+        return new Promise((resolve, reject) => {
+          queue.push(item);
+          pendingPromises.set(item, { resolve, reject });
+
+          if (maxQueueLength !== undefined && queue.length >= maxQueueLength) {
+            if (timeout) {
+              clearTimeout(timeout);
+              timeout = null;
+            }
+            processBatch();
+          } else if (!timeout || debounce) {
+            scheduleBatch();
+          }
+        });
+      };
+
+      const flush = async () => {
+        if (closed) return;
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
+        if (queue.length > 0) {
+          await processBatch();
+        }
+      };
+
+      const getQueueLength = () => queue.length;
+
+      const close = () => {
+        closed = true;
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
+        queue = [];
+        for (const promise of pendingPromises.values()) {
+          promise.reject(new Error('Request collapser was closed'));
+        }
+        pendingPromises.clear();
+      };
+
+      return { process, flush, getQueueLength, close };
+    }
+
+    // Demo state
+    let collapser = null;
+    let batchCount = 0;
+    const logEl = document.getElementById('log');
+    const queueLengthEl = document.getElementById('queueLength');
+
+    function getTimestamp() {
+      const now = new Date();
+      return now.toLocaleTimeString('en-US', { hour12: false }) + '.' +
+             String(now.getMilliseconds()).padStart(3, '0');
+    }
+
+    function log(html) {
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `<span class="log-time">[${getTimestamp()}]</span> ${html}`;
+      logEl.insertBefore(entry, logEl.firstChild);
+    }
+
+    function logSeparator() {
+      const sep = document.createElement('div');
+      sep.className = 'log-separator';
+      sep.textContent = '─'.repeat(50);
+      logEl.insertBefore(sep, logEl.firstChild);
+    }
+
+    function clearLog() {
+      logEl.innerHTML = '';
+      batchCount = 0;
+    }
+
+    function updateQueueDisplay() {
+      queueLengthEl.textContent = collapser ? collapser.getQueueLength() : 0;
+    }
+
+    // Batch processor that simulates work
+    async function batchProcessor(items) {
+      batchCount++;
+      const batchNum = batchCount;
+
+      logSeparator();
+      log(`<span class="log-batch">BATCH #${batchNum}</span> Processing: [${items.join(', ')}]`);
+
+      // Simulate async work
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const results = new Map();
+      items.forEach(item => {
+        const result = `${item}-processed`;
+        results.set(item, result);
+      });
+
+      log(`<span class="log-batch">BATCH #${batchNum}</span> Complete: ${items.length} items`);
+      updateQueueDisplay();
+
+      return results;
+    }
+
+    function initCollapser() {
+      if (collapser) {
+        collapser.close();
+      }
+
+      const timeout = parseInt(document.getElementById('timeout').value) || 500;
+      const maxQueueInput = document.getElementById('maxQueue').value;
+      const maxQueueLength = maxQueueInput ? parseInt(maxQueueInput) : undefined;
+      const debounce = document.getElementById('debounce').checked;
+
+      collapser = createRequestCollapser(batchProcessor, {
+        timeoutMillis: timeout,
+        maxQueueLength,
+        debounce
+      });
+
+      log(`<span class="log-result">Collapser initialized</span> timeout=${timeout}ms, maxQueue=${maxQueueLength || 'none'}, debounce=${debounce}`);
+      updateQueueDisplay();
+    }
+
+    function applySettings() {
+      initCollapser();
+    }
+
+    async function queueRequest(item) {
+      log(`<span class="log-queue">QUEUED</span> "${item}"`);
+      updateQueueDisplay();
+
+      // Update display immediately after queuing
+      setTimeout(updateQueueDisplay, 0);
+
+      try {
+        const result = await collapser.process(item);
+        log(`<span class="log-result">RESULT</span> "${item}" -> "${result}"`);
+      } catch (err) {
+        log(`<span style="color:#f44">ERROR</span> "${item}": ${err.message}`);
+      }
+
+      updateQueueDisplay();
+    }
+
+    // Poll queue length for display
+    setInterval(updateQueueDisplay, 50);
+
+    // Initialize on load
+    initCollapser();
+  </script>
+</body>
+</html>
