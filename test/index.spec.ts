@@ -19,8 +19,9 @@ describe('createRequestCollapser', () => {
 
   it('should batch multiple requests into a single batch operation', async () => {
     // given
-    const process =
-      createRequestCollapser<number, string>(batchProcessor).process;
+    const process = createRequestCollapser<number, string>(
+      batchProcessor
+    ).process;
 
     // when
     const promise1 = process(1);
@@ -70,8 +71,9 @@ describe('createRequestCollapser', () => {
 
   it('should use default timeoutMillis when no options provided', async () => {
     // given
-    const process =
-      createRequestCollapser<number, string>(batchProcessor).process;
+    const process = createRequestCollapser<number, string>(
+      batchProcessor
+    ).process;
 
     // when
     const promise = process(1);
@@ -92,8 +94,9 @@ describe('createRequestCollapser', () => {
 
   it('should allow forcing batch processing with flush', async () => {
     // given
-    const { process, flush } =
-      createRequestCollapser<number, string>(batchProcessor);
+    const { process, flush } = createRequestCollapser<number, string>(
+      batchProcessor
+    );
 
     // when
     const promise = process(1);
@@ -108,8 +111,9 @@ describe('createRequestCollapser', () => {
 
   it('should report correct queue length', async () => {
     // given
-    const { process, getQueueLength } =
-      createRequestCollapser<number, string>(batchProcessor);
+    const { process, getQueueLength } = createRequestCollapser<number, string>(
+      batchProcessor
+    );
 
     // when & then
     expect(getQueueLength()).toBe(0);
@@ -129,8 +133,9 @@ describe('createRequestCollapser', () => {
 
   it('should stop processing and reject pending promises when closed', async () => {
     // given
-    const { process, close } =
-      createRequestCollapser<number, string>(batchProcessor);
+    const { process, close } = createRequestCollapser<number, string>(
+      batchProcessor
+    );
 
     // when
     const promise1 = process(1);
@@ -145,8 +150,9 @@ describe('createRequestCollapser', () => {
 
   it('should prevent new requests from being processed after closing', async () => {
     // given
-    const { process, close } =
-      createRequestCollapser<number, string>(batchProcessor);
+    const { process, close } = createRequestCollapser<number, string>(
+      batchProcessor
+    );
 
     // when
     close();
@@ -159,8 +165,9 @@ describe('createRequestCollapser', () => {
 
   it('should not process batch after closing', async () => {
     // given
-    const { process, close } =
-      createRequestCollapser<number, string>(batchProcessor);
+    const { process, close } = createRequestCollapser<number, string>(
+      batchProcessor
+    );
 
     // when
     const promise = process(1);
@@ -174,8 +181,9 @@ describe('createRequestCollapser', () => {
 
   it('should not allow flush after closing', async () => {
     // given
-    const { process, flush, close } =
-      createRequestCollapser<number, string>(batchProcessor);
+    const { process, flush, close } = createRequestCollapser<number, string>(
+      batchProcessor
+    );
 
     // when
     const promise = process(1);
@@ -189,8 +197,10 @@ describe('createRequestCollapser', () => {
 
   it('should maintain queue length of 0 after closing', async () => {
     // given
-    const { process, getQueueLength, close } =
-      createRequestCollapser<number, string>(batchProcessor);
+    const { process, getQueueLength, close } = createRequestCollapser<
+      number,
+      string
+    >(batchProcessor);
 
     // when
     const promise = process(1);
@@ -286,8 +296,9 @@ describe('createRequestCollapser', () => {
       // given
       const error = new Error('Batch processing failed');
       const failingProcessor = vi.fn().mockRejectedValue(error);
-      const { process } =
-        createRequestCollapser<number, string>(failingProcessor);
+      const { process } = createRequestCollapser<number, string>(
+        failingProcessor
+      );
 
       // when
       const promise1 = process(1);
@@ -345,8 +356,9 @@ describe('createRequestCollapser', () => {
           }
           return Promise.resolve(result);
         });
-      const { process } =
-        createRequestCollapser<number, string>(incompleteProcessor);
+      const { process } = createRequestCollapser<number, string>(
+        incompleteProcessor
+      );
 
       // when
       const promise1 = process(1);
@@ -367,20 +379,20 @@ describe('createRequestCollapser', () => {
       let batchCount = 0;
       const slowFailingProcessor = vi
         .fn()
-        .mockImplementation(async (items: number[]): Promise<
-          Map<number, string>
-        > => {
-          batchCount++;
-          if (batchCount === 1) {
-            // First batch fails after a short delay
-            await new Promise(resolve => setTimeout(resolve, 10));
-            throw new Error('First batch failed');
+        .mockImplementation(
+          async (items: number[]): Promise<Map<number, string>> => {
+            batchCount++;
+            if (batchCount === 1) {
+              // First batch fails after a short delay
+              await new Promise(resolve => setTimeout(resolve, 10));
+              throw new Error('First batch failed');
+            }
+            // Second batch succeeds
+            const result = new Map<number, string>();
+            items.forEach(item => result.set(item, `processed-${item}`));
+            return result;
           }
-          // Second batch succeeds
-          const result = new Map<number, string>();
-          items.forEach(item => result.set(item, `processed-${item}`));
-          return result;
-        });
+        );
       const { process } = createRequestCollapser<number, string>(
         slowFailingProcessor,
         { timeoutMillis: 20 }
