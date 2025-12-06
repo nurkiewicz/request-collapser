@@ -227,6 +227,10 @@
         <input type="checkbox" id="debounce">
         <label for="debounce">Debounce mode</label>
       </div>
+      <div class="control-group checkbox-group">
+        <input type="checkbox" id="deduplicate">
+        <label for="deduplicate">Deduplicate mode</label>
+      </div>
       <button class="apply-btn" onclick="applySettings()">Apply</button>
     </div>
   </div>
@@ -240,43 +244,89 @@
   <script>
     // Browser-compatible version of createRequestCollapser
     function createRequestCollapser(batchProcessor, options = {}) {
-      const { timeoutMillis = 100, debounce = false, maxQueueLength } = options;
-      let queue = [];
+      const { timeoutMillis = 100, debounce = false, maxQueueLength, deduplicate = false } = options;
       let timeout = null;
       let closed = false;
-      const pendingPromises = new Map();
+      let nextId = 0;
+
+      // For deduplicate mode: track pending promises by item
+      const dedupePromises = new Map();
+      let dedupeQueue = [];
+
+      // For non-deduplicate mode: track each invocation separately
+      let invocationQueue = [];
+
+      const getEffectiveQueueLength = () => {
+        if (deduplicate) {
+          return dedupeQueue.length;
+        }
+        return invocationQueue.length;
+      };
 
       const processBatch = async () => {
         if (closed) return;
 
-        const items = [...queue];
-        queue = [];
         timeout = null;
 
-        const batchPromises = new Map();
-        for (const item of items) {
-          const promise = pendingPromises.get(item);
-          if (promise) {
-            batchPromises.set(item, promise);
-            pendingPromises.delete(item);
-          }
-        }
+        if (deduplicate) {
+          // Deduplicate mode: process unique items
+          const items = [...dedupeQueue];
+          dedupeQueue = [];
 
-        try {
-          const results = await batchProcessor(items);
-          for (const [item, result] of results) {
-            const promise = batchPromises.get(item);
-            if (promise) {
-              promise.resolve(result);
-              batchPromises.delete(item);
+          const batchPromises = new Map();
+          for (const item of items) {
+            const promises = dedupePromises.get(item);
+            if (promises) {
+              batchPromises.set(item, promises);
+              dedupePromises.delete(item);
             }
           }
-          for (const [item, promise] of batchPromises) {
-            promise.reject(new Error(`Batch processor did not return result for item: ${String(item)}`));
+
+          try {
+            const results = await batchProcessor(items);
+            for (const [item, result] of results) {
+              const promises = batchPromises.get(item);
+              if (promises) {
+                for (const promise of promises) {
+                  promise.resolve(result);
+                }
+                batchPromises.delete(item);
+              }
+            }
+            for (const [item, promises] of batchPromises) {
+              for (const promise of promises) {
+                promise.reject(new Error(`Batch processor did not return result for item: ${String(item)}`));
+              }
+            }
+          } catch (error) {
+            for (const promises of batchPromises.values()) {
+              for (const promise of promises) {
+                promise.reject(error);
+              }
+            }
           }
-        } catch (error) {
-          for (const promise of batchPromises.values()) {
-            promise.reject(error);
+        } else {
+          // Non-deduplicate mode: process each invocation separately
+          const entries = [...invocationQueue];
+          invocationQueue = [];
+
+          const items = entries.map(e => e.item);
+
+          try {
+            const results = await batchProcessor(items);
+
+            for (const entry of entries) {
+              const result = results.get(entry.item);
+              if (result !== undefined || results.has(entry.item)) {
+                entry.promise.resolve(result);
+              } else {
+                entry.promise.reject(new Error(`Batch processor did not return result for item: ${String(entry.item)}`));
+              }
+            }
+          } catch (error) {
+            for (const entry of entries) {
+              entry.promise.reject(error);
+            }
           }
         }
       };
@@ -296,10 +346,24 @@
         }
 
         return new Promise((resolve, reject) => {
-          queue.push(item);
-          pendingPromises.set(item, { resolve, reject });
+          if (deduplicate) {
+            const existing = dedupePromises.get(item);
+            if (existing) {
+              existing.push({ resolve, reject });
+            } else {
+              dedupeQueue.push(item);
+              dedupePromises.set(item, [{ resolve, reject }]);
+            }
+          } else {
+            invocationQueue.push({
+              id: nextId++,
+              item,
+              promise: { resolve, reject },
+            });
+          }
 
-          if (maxQueueLength !== undefined && queue.length >= maxQueueLength) {
+          const queueLen = getEffectiveQueueLength();
+          if (maxQueueLength !== undefined && queueLen >= maxQueueLength) {
             if (timeout) {
               clearTimeout(timeout);
               timeout = null;
@@ -317,12 +381,12 @@
           clearTimeout(timeout);
           timeout = null;
         }
-        if (queue.length > 0) {
+        if (getEffectiveQueueLength() > 0) {
           await processBatch();
         }
       };
 
-      const getQueueLength = () => queue.length;
+      const getQueueLength = () => getEffectiveQueueLength();
 
       const close = () => {
         closed = true;
@@ -330,11 +394,21 @@
           clearTimeout(timeout);
           timeout = null;
         }
-        queue = [];
-        for (const promise of pendingPromises.values()) {
-          promise.reject(new Error('Request collapser was closed'));
+
+        if (deduplicate) {
+          dedupeQueue = [];
+          for (const promises of dedupePromises.values()) {
+            for (const promise of promises) {
+              promise.reject(new Error('Request collapser was closed'));
+            }
+          }
+          dedupePromises.clear();
+        } else {
+          for (const entry of invocationQueue) {
+            entry.promise.reject(new Error('Request collapser was closed'));
+          }
+          invocationQueue = [];
         }
-        pendingPromises.clear();
       };
 
       return { process, flush, getQueueLength, close };
@@ -407,14 +481,16 @@
       const maxQueueInput = document.getElementById('maxQueue').value;
       const maxQueueLength = maxQueueInput ? parseInt(maxQueueInput) : undefined;
       const debounce = document.getElementById('debounce').checked;
+      const deduplicate = document.getElementById('deduplicate').checked;
 
       collapser = createRequestCollapser(batchProcessor, {
         timeoutMillis: timeout,
         maxQueueLength,
-        debounce
+        debounce,
+        deduplicate
       });
 
-      log(`<span class="log-result">Collapser initialized</span> timeout=${timeout}ms, maxQueue=${maxQueueLength || 'none'}, debounce=${debounce}`);
+      log(`<span class="log-result">Collapser initialized</span> timeout=${timeout}ms, maxQueue=${maxQueueLength || 'none'}, debounce=${debounce}, deduplicate=${deduplicate}`);
       updateQueueDisplay();
     }
 

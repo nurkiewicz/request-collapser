@@ -267,6 +267,34 @@ describe('createRequestCollapser', () => {
       expect(batchProcessor).toHaveBeenNthCalledWith(2, [3, 4]);
     });
 
+    it('should process each request immediately when maxQueueLength is 1', async () => {
+      // given
+      const { process } = createRequestCollapser<number, string>(
+        batchProcessor,
+        {
+          maxQueueLength: 1,
+          timeoutMillis: 1000,
+        }
+      );
+
+      // when
+      const promise1 = process(1);
+      // Should trigger immediately - no batching
+      expect(batchProcessor).toHaveBeenCalledTimes(1);
+      expect(batchProcessor).toHaveBeenCalledWith([1]);
+
+      const result1 = await promise1;
+      expect(result1).toBe('processed-1');
+
+      const promise2 = process(2);
+      // Should trigger immediately again
+      expect(batchProcessor).toHaveBeenCalledTimes(2);
+      expect(batchProcessor).toHaveBeenCalledWith([2]);
+
+      const result2 = await promise2;
+      expect(result2).toBe('processed-2');
+    });
+
     it('should still allow timeout-based processing with maxQueueLength', async () => {
       // given
       const { process } = createRequestCollapser<number, string>(
@@ -501,6 +529,282 @@ describe('createRequestCollapser', () => {
       expect(batchProcessor).toHaveBeenCalledWith([1, 2]);
       expect(result1).toBe('processed-1');
       expect(result2).toBe('processed-2');
+    });
+  });
+
+  describe('duplicate items handling (default: no deduplication)', () => {
+    it('should process duplicate items separately by default', async () => {
+      // given
+      const { process } = createRequestCollapser<number, string>(
+        batchProcessor
+      );
+
+      // when
+      const promise1 = process(1);
+      const promise2 = process(1); // Same item
+      const promise3 = process(1); // Same item again
+
+      vi.advanceTimersByTime(100);
+
+      // then
+      const [result1, result2, result3] = await Promise.all([
+        promise1,
+        promise2,
+        promise3,
+      ]);
+
+      expect(batchProcessor).toHaveBeenCalledTimes(1);
+      // All three invocations should be in the batch
+      expect(batchProcessor).toHaveBeenCalledWith([1, 1, 1]);
+      // All should get the same result
+      expect(result1).toBe('processed-1');
+      expect(result2).toBe('processed-1');
+      expect(result3).toBe('processed-1');
+    });
+
+    it('should count each invocation for queue length', async () => {
+      // given
+      const { process, getQueueLength } = createRequestCollapser<
+        number,
+        string
+      >(batchProcessor);
+
+      // when & then
+      expect(getQueueLength()).toBe(0);
+
+      const promise1 = process(1);
+      expect(getQueueLength()).toBe(1);
+
+      const promise2 = process(1); // Same item
+      expect(getQueueLength()).toBe(2); // Count is 2, not 1
+
+      const promise3 = process(1); // Same item again
+      expect(getQueueLength()).toBe(3); // Count is 3
+
+      vi.advanceTimersByTime(100);
+      await Promise.all([promise1, promise2, promise3]);
+
+      expect(getQueueLength()).toBe(0);
+    });
+
+    it('should trigger maxQueueLength based on invocation count', async () => {
+      // given
+      const { process, getQueueLength } = createRequestCollapser<
+        number,
+        string
+      >(batchProcessor, {
+        maxQueueLength: 3,
+        timeoutMillis: 1000,
+      });
+
+      // when
+      const promise1 = process(1);
+      expect(getQueueLength()).toBe(1);
+      expect(batchProcessor).not.toHaveBeenCalled();
+
+      const promise2 = process(1); // Same item
+      expect(getQueueLength()).toBe(2);
+      expect(batchProcessor).not.toHaveBeenCalled();
+
+      const promise3 = process(1); // Same item - triggers at 3
+      // Batch should process immediately
+
+      // then
+      const [result1, result2, result3] = await Promise.all([
+        promise1,
+        promise2,
+        promise3,
+      ]);
+      expect(batchProcessor).toHaveBeenCalledTimes(1);
+      expect(batchProcessor).toHaveBeenCalledWith([1, 1, 1]);
+      expect(result1).toBe('processed-1');
+      expect(result2).toBe('processed-1');
+      expect(result3).toBe('processed-1');
+    });
+
+    it('should work with debounce and duplicate items', async () => {
+      // given
+      const { process } = createRequestCollapser<number, string>(
+        batchProcessor,
+        {
+          debounce: true,
+          timeoutMillis: 100,
+        }
+      );
+
+      // when
+      const promise1 = process(1);
+      vi.advanceTimersByTime(50);
+      const promise2 = process(1); // Same item, resets timer
+      vi.advanceTimersByTime(50);
+      expect(batchProcessor).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(50);
+
+      // then
+      const [result1, result2] = await Promise.all([promise1, promise2]);
+      expect(batchProcessor).toHaveBeenCalledTimes(1);
+      expect(batchProcessor).toHaveBeenCalledWith([1, 1]);
+      expect(result1).toBe('processed-1');
+      expect(result2).toBe('processed-1');
+    });
+  });
+
+  describe('deduplicate mode', () => {
+    it('should deduplicate items when deduplicate is true', async () => {
+      // given
+      const { process } = createRequestCollapser<number, string>(
+        batchProcessor,
+        { deduplicate: true }
+      );
+
+      // when
+      const promise1 = process(1);
+      const promise2 = process(1); // Same item - should be deduplicated
+      const promise3 = process(2); // Different item
+
+      vi.advanceTimersByTime(100);
+
+      // then
+      const [result1, result2, result3] = await Promise.all([
+        promise1,
+        promise2,
+        promise3,
+      ]);
+
+      expect(batchProcessor).toHaveBeenCalledTimes(1);
+      // Only unique items should be in the batch
+      expect(batchProcessor).toHaveBeenCalledWith([1, 2]);
+      // Both promises for item 1 should get the same result
+      expect(result1).toBe('processed-1');
+      expect(result2).toBe('processed-1');
+      expect(result3).toBe('processed-2');
+    });
+
+    it('should count unique items for queue length in deduplicate mode', async () => {
+      // given
+      const { process, getQueueLength } = createRequestCollapser<
+        number,
+        string
+      >(batchProcessor, { deduplicate: true });
+
+      // when & then
+      expect(getQueueLength()).toBe(0);
+
+      const promise1 = process(1);
+      expect(getQueueLength()).toBe(1);
+
+      const promise2 = process(1); // Same item - queue length stays at 1
+      expect(getQueueLength()).toBe(1);
+
+      const promise3 = process(2); // Different item
+      expect(getQueueLength()).toBe(2);
+
+      const promise4 = process(1); // Same as first
+      expect(getQueueLength()).toBe(2);
+
+      vi.advanceTimersByTime(100);
+      await Promise.all([promise1, promise2, promise3, promise4]);
+
+      expect(getQueueLength()).toBe(0);
+    });
+
+    it('should trigger maxQueueLength based on unique item count', async () => {
+      // given
+      const { process, getQueueLength } = createRequestCollapser<
+        number,
+        string
+      >(batchProcessor, {
+        deduplicate: true,
+        maxQueueLength: 2,
+        timeoutMillis: 1000,
+      });
+
+      // when
+      const promise1 = process(1);
+      expect(getQueueLength()).toBe(1);
+      expect(batchProcessor).not.toHaveBeenCalled();
+
+      const promise2 = process(1); // Same item - count stays 1
+      expect(getQueueLength()).toBe(1);
+      expect(batchProcessor).not.toHaveBeenCalled();
+
+      const promise3 = process(2); // Different item - triggers at 2
+      // Batch should process immediately
+
+      // then
+      const [result1, result2, result3] = await Promise.all([
+        promise1,
+        promise2,
+        promise3,
+      ]);
+      expect(batchProcessor).toHaveBeenCalledTimes(1);
+      expect(batchProcessor).toHaveBeenCalledWith([1, 2]);
+      expect(result1).toBe('processed-1');
+      expect(result2).toBe('processed-1');
+      expect(result3).toBe('processed-2');
+    });
+
+    it('should work with debounce and deduplicate', async () => {
+      // given
+      const { process } = createRequestCollapser<number, string>(
+        batchProcessor,
+        {
+          deduplicate: true,
+          debounce: true,
+          timeoutMillis: 100,
+        }
+      );
+
+      // when
+      const promise1 = process(1);
+      vi.advanceTimersByTime(50);
+      const promise2 = process(1); // Same item, still resets timer
+      vi.advanceTimersByTime(50);
+      expect(batchProcessor).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(50);
+
+      // then
+      const [result1, result2] = await Promise.all([promise1, promise2]);
+      expect(batchProcessor).toHaveBeenCalledTimes(1);
+      expect(batchProcessor).toHaveBeenCalledWith([1]); // Only one unique item
+      expect(result1).toBe('processed-1');
+      expect(result2).toBe('processed-1');
+    });
+
+    it('should reject all promises for deduplicated item on error', async () => {
+      // given
+      const error = new Error('Batch processing failed');
+      const failingProcessor = vi.fn().mockRejectedValue(error);
+      const { process } = createRequestCollapser<number, string>(
+        failingProcessor,
+        { deduplicate: true }
+      );
+
+      // when
+      const promise1 = process(1);
+      const promise2 = process(1); // Same item
+      vi.advanceTimersByTime(100);
+
+      // then
+      await expect(promise1).rejects.toThrow('Batch processing failed');
+      await expect(promise2).rejects.toThrow('Batch processing failed');
+    });
+
+    it('should close all deduplicated promises', async () => {
+      // given
+      const { process, close } = createRequestCollapser<number, string>(
+        batchProcessor,
+        { deduplicate: true }
+      );
+
+      // when
+      const promise1 = process(1);
+      const promise2 = process(1); // Same item
+      close();
+
+      // then
+      await expect(promise1).rejects.toThrow('Request collapser was closed');
+      await expect(promise2).rejects.toThrow('Request collapser was closed');
     });
   });
 });
